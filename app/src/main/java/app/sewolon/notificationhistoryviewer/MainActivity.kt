@@ -59,6 +59,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -121,6 +124,7 @@ import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 class MainActivity : ComponentActivity() {
     private data class AppInfo(val name: String, val icon: ImageBitmap?)
@@ -387,9 +391,15 @@ class MainActivity : ComponentActivity() {
         val searchFocused by searchInteraction.collectIsFocusedAsState()
         val focusManager = LocalFocusManager.current
         val keyboard = LocalSoftwareKeyboardController.current
+        val haptic = LocalHapticFeedback.current
+        val clickFeedback = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick) }
+        val selectionFeedback = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
         val dismissSearchFocus = {
             focusManager.clearFocus()
             keyboard?.hide()
+        }
+        LaunchedEffect(query, searchFocused) {
+            if (query.isEmpty() && !searchFocused) searchExpanded = false
         }
         val listFocusDismiss = remember(focusManager, keyboard) {
             object : NestedScrollConnection {
@@ -465,7 +475,7 @@ class MainActivity : ComponentActivity() {
         ) {
             PullToRefresh(
                 isRefreshing = busy,
-                onRefresh = { dismissSearchFocus(); refresh() },
+                onRefresh = { selectionFeedback(); dismissSearchFocus(); refresh() },
                 pullToRefreshState = pullToRefreshState,
                 contentPadding = PaddingValues(top = barHeight),
                 refreshTexts = listOf(
@@ -476,7 +486,7 @@ class MainActivity : ComponentActivity() {
                 )
             ) {
                 LazyColumn(
-                    Modifier.fillMaxSize()
+                    Modifier.fillMaxSize().scrollEndHaptic()
                         .then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier)
                         .nestedScroll(listFocusDismiss)
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -506,6 +516,7 @@ class MainActivity : ComponentActivity() {
                                             onClickLabel = stringResource(if (expanded) R.string.collapse else R.string.expand),
                                             role = Role.Button
                                         ) {
+                                            clickFeedback()
                                             expandedGroups[groupKey] = !expanded
                                             if (expanded) revealedRemainderGroups[groupKey] = false
                                             else coroutineScope.launch {
@@ -594,14 +605,14 @@ class MainActivity : ComponentActivity() {
                             enter = fadeIn() + slideInVertically { it / 2 },
                             exit = fadeOut() + slideOutVertically { it / 2 }
                         ) {
-                            IconButton(onClick = { dismissSearchFocus(); coroutineScope.launch { listState.animateScrollToItem(0) } }) {
+                            IconButton(onClick = { clickFeedback(); dismissSearchFocus(); coroutineScope.launch { listState.animateScrollToItem(0) } }) {
                                 Icon(imageVector = MiuixIcons.Back, contentDescription = stringResource(R.string.back_to_top),
                                     modifier = Modifier.size(24.dp).graphicsLayer { rotationZ = 90f })
                             }
                         }
                     },
                     actions = {
-                        IconButton(onClick = { dismissSearchFocus(); refresh() }, enabled = !busy) {
+                        IconButton(onClick = { clickFeedback(); dismissSearchFocus(); refresh() }, enabled = !busy) {
                             if (busy) {
                                 val refreshingDescription = stringResource(R.string.refresh_refreshing)
                                 InfiniteProgressIndicator(
@@ -634,7 +645,6 @@ class MainActivity : ComponentActivity() {
                             SearchBar(
                                 inputField = { InputField(query = query, onQueryChange = {
                                     query = it; saveSearch()
-                                    if (it.isEmpty() && !searchFocused) searchExpanded = false
                                 },
                                     onSearch = { focusManager.clearFocus(); keyboard?.hide() },
                                     expanded = searchExpanded, onExpandedChange = { searchExpanded = it },
@@ -668,9 +678,9 @@ class MainActivity : ComponentActivity() {
                                                         onClickLabel = clearSearchDescription,
                                                         role = Role.Button
                                                     ) {
+                                                        clickFeedback()
                                                         query = ""
                                                         saveSearch()
-                                                        if (!searchFocused) searchExpanded = false
                                                     }
                                                 )
                                             }
@@ -682,9 +692,10 @@ class MainActivity : ComponentActivity() {
                                 outsideEndAction = {
                                     Text(text = stringResource(R.string.cancel),
                                         color = MiuixTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(start = 12.dp).clickable(
                                             interactionSource = null, indication = null
-                                        ) { query = ""; saveSearch(); focusManager.clearFocus(); keyboard?.hide(); searchExpanded = false })
+                                        ) { clickFeedback(); query = ""; saveSearch(); dismissSearchFocus(); searchExpanded = false })
                                 },
                                 content = {}, modifier = Modifier.width(screenWidth - 32.dp),
                                 insideMargin = androidx.compose.ui.unit.DpSize(0.dp, 0.dp)
@@ -697,6 +708,7 @@ class MainActivity : ComponentActivity() {
                                     role = Role.Button
                                 ) {
                                     dismissSearchFocus()
+                                    if (!scopeOpen) selectionFeedback()
                                     scopeOpen = !scopeOpen
                                 }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(stringResource(R.string.search_scope), style = MiuixTheme.textStyles.subtitle,
@@ -720,6 +732,7 @@ class MainActivity : ComponentActivity() {
                                                 isFirst = index == 0,
                                                 isLast = false,
                                                 onSelectedIndexChange = {
+                                                    selectionFeedback()
                                                     searchScopes = searchScopes xor (1 shl index)
                                                     saveSearch()
                                                 }
@@ -736,7 +749,7 @@ class MainActivity : ComponentActivity() {
                                             index = 10,
                                             isFirst = false,
                                             isLast = false,
-                                            onSelectedIndexChange = { useRegex = !useRegex; saveSearch() }
+                                            onSelectedIndexChange = { selectionFeedback(); useRegex = !useRegex; saveSearch() }
                                         )
                                         DropdownImpl(
                                             item = DropdownItem(text = stringResource(R.string.ignore_separators)),
@@ -745,7 +758,7 @@ class MainActivity : ComponentActivity() {
                                             index = 11,
                                             isFirst = false,
                                             isLast = true,
-                                            onSelectedIndexChange = { ignoreSeparators = !ignoreSeparators; saveSearch() }
+                                            onSelectedIndexChange = { selectionFeedback(); ignoreSeparators = !ignoreSeparators; saveSearch() }
                                         )
                                     }
                                 }
@@ -761,7 +774,7 @@ class MainActivity : ComponentActivity() {
             backgroundColor = MiuixTheme.colorScheme.surfaceContainerHigh,
             startAction = {
                 val dismissState = LocalDismissState.current
-                IconButton(onClick = { dismissState?.invoke() ?: run { sheetOpen = false } }) {
+                IconButton(onClick = { clickFeedback(); dismissState?.invoke() ?: run { sheetOpen = false } }) {
                     Icon(
                         imageVector = MiuixIcons.Basic.Close,
                         contentDescription = stringResource(R.string.close),
