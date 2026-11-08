@@ -46,4 +46,10 @@
     <string name="filtered_count">%1$d after filtering</string>
     <string name="new_backup_count">%1$d new backups</string>
     <string name="same_source_count">%1$d from same source</string>
+    <string name="expand">Expand</string>
+    <string name="collapse">Collapse</string>
+    <string name="refresh_pulling">Pull down to refresh</string>
+    <string name="refresh_release">Release to refresh</string>
+    <string name="refresh_refreshing">Refreshing…</string>
+    <string name="refresh_complete">Refresh complete</string>
 </resources>

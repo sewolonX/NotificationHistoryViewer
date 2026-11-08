@@ -22,11 +22,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.graphicsLayer
@@ -72,6 +76,8 @@ import java.util.Locale
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CancellationException
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -99,6 +105,8 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.Search
 import top.yukonga.miuix.kmp.icon.basic.Close
 import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.extended.ExpandMore
+import top.yukonga.miuix.kmp.icon.extended.ExpandLess
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurColors
@@ -110,12 +118,13 @@ import top.yukonga.miuix.kmp.blur.textureBlur
 class MainActivity : ComponentActivity() {
     private data class AppInfo(val name: String, val icon: ImageBitmap?)
     private data class EntryKey(val time: Long, val pkg: String, val title: String, val text: String)
+    private data class NotificationGroup(val entries: List<HistoryReader.Entry>)
     private data class SearchRecord(val entry: HistoryReader.Entry, val fields: List<String>)
 
     private var entries by mutableStateOf<List<HistoryReader.Entry>>(emptyList())
     private var searchRecords by mutableStateOf<List<SearchRecord>>(emptyList())
     private val apps = mutableStateMapOf<String, AppInfo>()
-    private var busy by mutableStateOf(true)
+    private var busy by mutableStateOf(false)
     private var status by mutableStateOf("")
     private var query by mutableStateOf("")
     private var newBackupCount by mutableIntStateOf(0)
@@ -170,6 +179,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refresh() {
+        if (busy) return
         busy = true
         status = getString(R.string.prepare_history)
         thread {
@@ -285,13 +295,22 @@ class MainActivity : ComponentActivity() {
         }
     } catch (_: Exception) { null }
 
+    private fun groupTimeRange(group: List<HistoryReader.Entry>): String {
+        val format = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault())
+        val start = format.format(Date(group.last().time))
+        val end = format.format(Date(group.first().time))
+        val common = start.commonPrefixWith(end)
+        val cut = common.indexOfLast { it == ' ' || it == ':' }.takeIf { it >= 0 }?.plus(1) ?: 0
+        return "$start ~ ${end.drop(cut)}"
+    }
+
     private fun saveSearch() {
         getSharedPreferences("search_settings", MODE_PRIVATE).edit()
             .putString("query", query).putInt("scopes", searchScopes)
             .putBoolean("regex", useRegex).putBoolean("separators", ignoreSeparators).apply()
     }
 
-    private val separators = Regex("[\\s\\u3000_\\-:./()（）：。／－＿]+")
+    private val separators = Regex("[\\s\\u3000_\\-:./()（）：。／－＿~|～｜]+")
 
     private fun indexEntries(data: List<HistoryReader.Entry>, names: Map<String, AppInfo>): List<SearchRecord> {
         val format = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -300,6 +319,48 @@ class MainActivity : ComponentActivity() {
             format.format(Date(entry.time)), entry.userId.takeIf { it >= 0 }?.toString().orEmpty(),
             entry.channelName, entry.channelId, entry.conversationId, entry.source
         )) }
+    }
+
+    @Composable
+    private fun NotificationRow(
+        entry: HistoryReader.Entry,
+        app: AppInfo?,
+        dateFormat: SimpleDateFormat,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        Column(modifier) {
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onClick)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                if (app?.icon != null) {
+                    Image(app.icon, contentDescription = null, modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)))
+                } else {
+                    Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
+                        Text((app?.name ?: entry.pkg).take(1))
+                    }
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(app?.name ?: entry.pkg, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.width(6.dp))
+                        Text(dateFormat.format(Date(entry.time)), style = MiuixTheme.textStyles.body2)
+                    }
+                    Text(entry.pkg, style = MiuixTheme.textStyles.body2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (entry.title.isNotBlank()) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(entry.title)
+                    }
+                    if (entry.text.isNotBlank()) {
+                        Text(entry.text, style = MiuixTheme.textStyles.body2)
+                    }
+                }
+            }
+            HorizontalDivider()
+        }
     }
 
     @Composable
@@ -336,7 +397,7 @@ class MainActivity : ComponentActivity() {
                 if (search.isEmpty()) records.map { it.entry } else {
                     val normalizedTerm = if (removeSeparators) search.replace(separators, "") else search
                     val pattern = if (regexMode) runCatching { Regex(search, RegexOption.IGNORE_CASE) }.getOrNull() else null
-                    val plainRegex = regexMode && search.none { it in "\\[]{}+*?^$|.()" }
+                    val plainRegex = regexMode && normalizedTerm.none { it in "\\[]{}+*?^$|.()" }
                     records.asSequence().filter { record ->
                         record.fields.indices.any { index ->
                             if (scopeMask and (1 shl index) == 0) false else {
@@ -352,7 +413,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        val groups = remember(filtered) {
+            filtered.fold(mutableListOf<MutableList<HistoryReader.Entry>>()) { result, entry ->
+                if (result.lastOrNull()?.lastOrNull()?.pkg == entry.pkg) result.last().add(entry)
+                else result.add(mutableListOf(entry))
+                result
+            }.map { NotificationGroup(it.toList()) }
+        }
+        val expandedGroups = remember { mutableStateMapOf<EntryKey, Boolean>() }
+        val revealedRemainderGroups = remember { mutableStateMapOf<EntryKey, Boolean>() }
         val listState = rememberLazyListState()
+        val pullToRefreshState = rememberPullToRefreshState()
         val scopeLabels = listOf(R.string.scope_app, R.string.detail_package, R.string.detail_title,
             R.string.detail_content, R.string.detail_time, R.string.detail_user_id,
             R.string.detail_channel_name, R.string.detail_channel_id,
@@ -379,52 +450,110 @@ class MainActivity : ComponentActivity() {
                     indication = null
                 ) { focusManager.clearFocus(); keyboard?.hide() }
         ) {
-            LazyColumn(
-                Modifier.fillMaxSize()
-                    .then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier)
-                    .nestedScroll(listFocusDismiss)
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
-                state = listState,
-                contentPadding = PaddingValues(top = barHeight, bottom = 32.dp)
+            PullToRefresh(
+                isRefreshing = busy,
+                onRefresh = { dismissSearchFocus(); refresh() },
+                pullToRefreshState = pullToRefreshState,
+                contentPadding = PaddingValues(top = barHeight),
+                refreshTexts = listOf(
+                    stringResource(R.string.refresh_pulling),
+                    stringResource(R.string.refresh_release),
+                    stringResource(R.string.refresh_refreshing),
+                    stringResource(R.string.refresh_complete)
+                )
             ) {
-                if (!busy && filtered.isEmpty()) {
-                    item { Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
-                        Text(if (entries.isEmpty()) status else stringResource(R.string.empty_search))
-                    } }
-                } else {
-                    items(filtered) { entry ->
-                        val app = apps[entry.pkg]
-                        Row(Modifier.fillMaxWidth().clickable {
-                            focusManager.clearFocus()
-                            keyboard?.hide()
-                            selectedEntry = entry
-                            sheetOpen = true
-                        }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.Top) {
-                            if (app?.icon != null) {
-                                Image(app.icon, contentDescription = null, modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)))
-                            } else {
-                                Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
-                                    Text((app?.name ?: entry.pkg).take(1))
+                LazyColumn(
+                    Modifier.fillMaxSize()
+                        .then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier)
+                        .nestedScroll(listFocusDismiss)
+                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    state = listState,
+                    contentPadding = PaddingValues(top = barHeight, bottom = 32.dp)
+                ) {
+                    if (groups.isNotEmpty()) item { HorizontalDivider() }
+                    if (!busy && filtered.isEmpty()) {
+                        item { Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
+                            Text(if (entries.isEmpty()) status else stringResource(R.string.empty_search))
+                        } }
+                    } else {
+                        groups.forEach { group ->
+                            val first = group.entries.first()
+                            val groupKey = EntryKey(first.time, first.pkg, first.title, first.text)
+                            if (group.entries.size >= 3) {
+                                item(key = "group:$groupKey", contentType = "group") {
+                                    val expanded = expandedGroups[groupKey] == true
+                                    var turns by remember(groupKey) { mutableIntStateOf(0) }
+                                    val rotation by animateFloatAsState(
+                                        targetValue = turns * 360f,
+                                        animationSpec = tween(durationMillis = 400),
+                                        label = "expand rotation"
+                                    )
+                                    Row(
+                                        Modifier.fillMaxWidth().clickable {
+                                            expandedGroups[groupKey] = !expanded
+                                            if (expanded) revealedRemainderGroups[groupKey] = false
+                                            else coroutineScope.launch {
+                                                delay(350)
+                                                if (expandedGroups[groupKey] == true) revealedRemainderGroups[groupKey] = true
+                                            }
+                                            turns++
+                                        }.padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        SmallTitle(
+                                            text = "${apps[first.pkg]?.name ?: first.pkg} (${group.entries.size})",
+                                            modifier = Modifier.weight(1f),
+                                            insideMargin = PaddingValues(0.dp)
+                                        )
+                                        SmallTitle(text = groupTimeRange(group.entries), insideMargin = PaddingValues(0.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Icon(
+                                            imageVector = if (expanded) MiuixIcons.ExpandLess else MiuixIcons.ExpandMore,
+                                            contentDescription = stringResource(if (expanded) R.string.collapse else R.string.expand),
+                                            modifier = Modifier.size(24.dp).graphicsLayer { rotationZ = rotation }
+                                        )
+                                    }
+                                    HorizontalDivider()
                                 }
                             }
-                            Spacer(Modifier.width(11.dp))
-                            Column(Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(app?.name ?: entry.pkg, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(dateFormat.format(Date(entry.time)), style = MiuixTheme.textStyles.body2)
+                            if (group.entries.size >= 3) {
+                                // Only the first screenful participates in the height animation.
+                                // The remaining notifications stay as lazy items below it.
+                                item(key = "preview:$groupKey", contentType = "preview") {
+                                    AnimatedVisibility(
+                                        visible = expandedGroups[groupKey] == true,
+                                        enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(350)),
+                                        exit = shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(350))
+                                    ) {
+                                        Column {
+                                            group.entries.take(8).forEach { entry ->
+                                                NotificationRow(entry, apps[entry.pkg], dateFormat) {
+                                                    focusManager.clearFocus()
+                                                    keyboard?.hide()
+                                                    selectedEntry = entry
+                                                    sheetOpen = true
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                                Text(entry.pkg, style = MiuixTheme.textStyles.body2, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (entry.title.isNotBlank()) {
-                                    Spacer(Modifier.height(3.dp))
-                                    Text(entry.title)
-                                }
-                                if (entry.text.isNotBlank()) {
-                                    Text(entry.text, style = MiuixTheme.textStyles.body2)
+                            }
+                            val lazyEntries = if (group.entries.size < 3) group.entries
+                                else if (revealedRemainderGroups[groupKey] == true) group.entries.drop(8)
+                                else emptyList()
+                            items(
+                                items = lazyEntries,
+                                key = { entry -> "entry:${entry.time}:${entry.pkg}:${entry.title}:${entry.text}" },
+                                contentType = { "notification" }
+                            ) { entry ->
+                                NotificationRow(entry, apps[entry.pkg], dateFormat) {
+                                    focusManager.clearFocus()
+                                    keyboard?.hide()
+                                    selectedEntry = entry
+                                    sheetOpen = true
                                 }
                             }
                         }
-                        HorizontalDivider()
                     }
                 }
             }

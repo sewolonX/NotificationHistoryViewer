@@ -46,4 +46,10 @@
     <string name="filtered_count">筛选后 %1$d 条</string>
     <string name="new_backup_count">新备份 %1$d 个</string>
     <string name="same_source_count">同来源 %1$d 条</string>
+    <string name="expand">展开</string>
+    <string name="collapse">折叠</string>
+    <string name="refresh_pulling">下拉刷新</string>
+    <string name="refresh_release">松开刷新</string>
+    <string name="refresh_refreshing">正在刷新…</string>
+    <string name="refresh_complete">刷新完成</string>
 </resources>
