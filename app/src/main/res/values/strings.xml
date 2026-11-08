@@ -52,4 +52,8 @@
     <string name="refresh_release">Release to refresh</string>
     <string name="refresh_refreshing">Refreshing…</string>
     <string name="refresh_complete">Refresh complete</string>
+    <string name="a11y_app_icon">Application icon: %1$s</string>
+    <string name="a11y_notification_icon">Notification icon: %1$s</string>
+    <string name="view_notification_details">View notification details</string>
+    <string name="clear_search">Clear search</string>
 </resources>

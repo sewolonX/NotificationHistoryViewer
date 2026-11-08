@@ -39,11 +39,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -55,7 +58,6 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -65,7 +67,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import java.io.File
 import java.io.StringReader
@@ -91,18 +96,20 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.SearchBar
+import top.yukonga.miuix.kmp.basic.SearchBarDefaults
 import top.yukonga.miuix.kmp.basic.InputField
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.DropdownImpl
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
-import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.Search
+import top.yukonga.miuix.kmp.icon.basic.SearchCleanup
 import top.yukonga.miuix.kmp.icon.basic.Close
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.ExpandMore
@@ -329,17 +336,24 @@ class MainActivity : ComponentActivity() {
         modifier: Modifier = Modifier,
         onClick: () -> Unit
     ) {
+        val appName = app?.name ?: entry.pkg
+        val appIconDescription = stringResource(R.string.a11y_app_icon, appName)
+        val detailsAction = stringResource(R.string.view_notification_details)
         Column(modifier) {
             Row(
-                Modifier.fillMaxWidth().clickable(onClick = onClick)
+                Modifier.fillMaxWidth().clickable(
+                    onClickLabel = detailsAction,
+                    role = Role.Button,
+                    onClick = onClick
+                )
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 if (app?.icon != null) {
-                    Image(app.icon, contentDescription = null, modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)))
+                    Image(app.icon, contentDescription = appIconDescription, modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)))
                 } else {
-                    Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
-                        Text((app?.name ?: entry.pkg).take(1))
+                    Box(Modifier.size(38.dp).semantics { contentDescription = appIconDescription }, contentAlignment = Alignment.Center) {
+                        Text(appName.take(1))
                     }
                 }
                 Spacer(Modifier.width(11.dp))
@@ -433,7 +447,6 @@ class MainActivity : ComponentActivity() {
         val dateFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
         val scrollBehavior = MiuixScrollBehavior()
         val density = LocalDensity.current
-        val windowHeight = LocalWindowInfo.current.containerDpSize.height
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
         var barHeight by remember { mutableStateOf(200.dp) }
         val blurEnabled = isRuntimeShaderSupported()
@@ -489,7 +502,10 @@ class MainActivity : ComponentActivity() {
                                         label = "expand rotation"
                                     )
                                     Row(
-                                        Modifier.fillMaxWidth().clickable {
+                                        Modifier.fillMaxWidth().clickable(
+                                            onClickLabel = stringResource(if (expanded) R.string.collapse else R.string.expand),
+                                            role = Role.Button
+                                        ) {
                                             expandedGroups[groupKey] = !expanded
                                             if (expanded) revealedRemainderGroups[groupKey] = false
                                             else coroutineScope.launch {
@@ -587,7 +603,9 @@ class MainActivity : ComponentActivity() {
                     actions = {
                         IconButton(onClick = { dismissSearchFocus(); refresh() }, enabled = !busy) {
                             if (busy) {
+                                val refreshingDescription = stringResource(R.string.refresh_refreshing)
                                 InfiniteProgressIndicator(
+                                    modifier = Modifier.semantics { contentDescription = refreshingDescription },
                                     color = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                                     size = 24.dp,
                                     strokeWidth = 2.dp,
@@ -611,6 +629,8 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(start = 10.dp)
                             )
                             Spacer(Modifier.height(8.dp))
+                            val searchDescription = stringResource(R.string.search_hint)
+                            val clearSearchDescription = stringResource(R.string.clear_search)
                             SearchBar(
                                 inputField = { InputField(query = query, onQueryChange = {
                                     query = it; saveSearch()
@@ -618,7 +638,45 @@ class MainActivity : ComponentActivity() {
                                 },
                                     onSearch = { focusManager.clearFocus(); keyboard?.hide() },
                                     expanded = searchExpanded, onExpandedChange = { searchExpanded = it },
-                                    label = "", interactionSource = searchInteraction) },
+                                    label = "",
+                                    modifier = Modifier.semantics { contentDescription = searchDescription },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = MiuixIcons.Basic.Search,
+                                            contentDescription = searchDescription,
+                                            tint = MiuixTheme.colorScheme.onSurfaceContainerHigh,
+                                            modifier = Modifier.padding(
+                                                start = SearchBarDefaults.LeadingIconStartPadding,
+                                                end = SearchBarDefaults.LeadingIconEndPadding
+                                            )
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        AnimatedVisibility(visible = query.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
+                                            Box(
+                                                Modifier.padding(
+                                                    start = SearchBarDefaults.TrailingIconStartPadding,
+                                                    end = SearchBarDefaults.TrailingIconEndPadding
+                                                ),
+                                                contentAlignment = Alignment.CenterStart
+                                            ) {
+                                                Icon(
+                                                    imageVector = MiuixIcons.Basic.SearchCleanup,
+                                                    contentDescription = clearSearchDescription,
+                                                    tint = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+                                                    modifier = Modifier.clip(CircleShape).clickable(
+                                                        onClickLabel = clearSearchDescription,
+                                                        role = Role.Button
+                                                    ) {
+                                                        query = ""
+                                                        saveSearch()
+                                                        if (!searchFocused) searchExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    },
+                                    interactionSource = searchInteraction) },
                                 expanded = searchExpanded,
                                 onExpandedChange = { searchExpanded = it; if (!it) { focusManager.clearFocus(); keyboard?.hide() } },
                                 outsideEndAction = {
@@ -632,14 +690,19 @@ class MainActivity : ComponentActivity() {
                                 insideMargin = androidx.compose.ui.unit.DpSize(0.dp, 0.dp)
                             )
                             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                                Row(Modifier.clickable(interactionSource = null, indication = null) {
+                                Row(Modifier.clickable(
+                                    interactionSource = null,
+                                    indication = null,
+                                    onClickLabel = stringResource(R.string.search_scope),
+                                    role = Role.Button
+                                ) {
                                     dismissSearchFocus()
                                     scopeOpen = !scopeOpen
                                 }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(stringResource(R.string.search_scope), style = MiuixTheme.textStyles.subtitle,
                                         color = MiuixTheme.colorScheme.onBackgroundVariant)
                                     Spacer(Modifier.width(8.dp))
-                                    Icon(imageVector = MiuixIcons.Basic.ArrowUpDown, contentDescription = null,
+                                    Icon(imageVector = MiuixIcons.Basic.ArrowUpDown, contentDescription = stringResource(R.string.search_scope),
                                         tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
                                         modifier = Modifier.size(10.dp, 16.dp))
                                 }
@@ -647,22 +710,46 @@ class MainActivity : ComponentActivity() {
                                     alignment = PopupPositionProvider.Align.End,
                                     onDismissRequest = { scopeOpen = false },
                                     maxHeight = 400.dp, enableWindowDim = true) {
-                                    Column(Modifier.width(220.dp).verticalScroll(rememberScrollState())) {
+                                    ListPopupColumn {
                                         scopeLabels.forEachIndexed { index, label ->
-                                            ScopeOption(stringResource(label), searchScopes and (1 shl index) != 0, index) {
-                                                searchScopes = searchScopes xor (1 shl index); saveSearch()
-                                            }
+                                            DropdownImpl(
+                                                item = DropdownItem(text = stringResource(label)),
+                                                optionSize = 12,
+                                                isSelected = searchScopes and (1 shl index) != 0,
+                                                index = index,
+                                                isFirst = index == 0,
+                                                isLast = false,
+                                                onSelectedIndexChange = {
+                                                    searchScopes = searchScopes xor (1 shl index)
+                                                    saveSearch()
+                                                }
+                                            )
                                         }
-                                        ScopeOption(stringResource(R.string.regex_search), useRegex, 10) {
-                                            useRegex = !useRegex; saveSearch()
-                                        }
-                                        ScopeOption(stringResource(R.string.ignore_separators), ignoreSeparators, 11) {
-                                            ignoreSeparators = !ignoreSeparators; saveSearch()
-                                        }
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                                            thickness = 1.5.dp
+                                        )
+                                        DropdownImpl(
+                                            item = DropdownItem(text = stringResource(R.string.regex_search)),
+                                            optionSize = 12,
+                                            isSelected = useRegex,
+                                            index = 10,
+                                            isFirst = false,
+                                            isLast = false,
+                                            onSelectedIndexChange = { useRegex = !useRegex; saveSearch() }
+                                        )
+                                        DropdownImpl(
+                                            item = DropdownItem(text = stringResource(R.string.ignore_separators)),
+                                            optionSize = 12,
+                                            isSelected = ignoreSeparators,
+                                            index = 11,
+                                            isFirst = false,
+                                            isLast = true,
+                                            onSelectedIndexChange = { ignoreSeparators = !ignoreSeparators; saveSearch() }
+                                        )
                                     }
                                 }
                             }
-                            Spacer(Modifier.height(8.dp))
                         }
                     }
                 )
@@ -687,25 +774,42 @@ class MainActivity : ComponentActivity() {
             allowDismiss = true,
             enableNestedScroll = true
         ) {
+            val dialogView = LocalView.current
+            val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
+                ?: (dialogView as? DialogWindowProvider)?.window
+            val dark = isSystemInDarkTheme()
+            SideEffect {
+                dialogWindow?.let { dialog ->
+                    WindowCompat.getInsetsController(dialog, dialog.decorView).apply {
+                        isAppearanceLightStatusBars = !dark
+                        isAppearanceLightNavigationBars = !dark
+                    }
+                }
+            }
             selectedEntry?.let { entry ->
                 val packageInfo = apps[entry.pkg]
+                val appName = packageInfo?.name ?: entry.pkg
                 val notificationIcon = remember(entry) { loadNotificationIcon(entry) }
+                val navigationBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 Column(
                     Modifier.fillMaxWidth()
-                        .heightIn(max = windowHeight * 0.78f)
                         .verticalScroll(rememberScrollState())
-                        .padding(bottom = 24.dp)
+                        .padding(bottom = 24.dp + navigationBarBottom)
                 ) {
                     SelectionContainer {
                         Column {
-                            SmallTitle(text = stringResource(R.string.detail_app_icon), insideMargin = PaddingValues(top = 10.dp, bottom = 4.dp))
-                            packageInfo?.icon?.let { icon ->
-                                Image(icon, contentDescription = null, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)))
+                            SmallTitle(text = stringResource(R.string.detail_app_icon), insideMargin = PaddingValues(top = 6.dp, bottom = 4.dp))
+                            if (packageInfo?.icon != null) {
+                                Image(packageInfo.icon, contentDescription = stringResource(R.string.a11y_app_icon, appName), modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)))
+                            } else {
+                                Text(stringResource(R.string.detail_unavailable), fontFamily = FontFamily.Monospace)
                             }
                             SmallTitle(text = stringResource(R.string.detail_notification_icon), insideMargin = PaddingValues(top = 10.dp, bottom = 4.dp))
-                            notificationIcon?.let { icon ->
+                            if (notificationIcon != null) {
                                 Spacer(Modifier.height(8.dp))
-                                Image(icon, contentDescription = null, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
+                                Image(notificationIcon, contentDescription = stringResource(R.string.a11y_notification_icon, entry.title.ifBlank { appName }), modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
+                            } else {
+                                Text(stringResource(R.string.detail_unavailable), fontFamily = FontFamily.Monospace)
                             }
                             DetailField(stringResource(R.string.detail_package), entry.pkg)
                             DetailField(stringResource(R.string.detail_time),
@@ -723,7 +827,7 @@ class MainActivity : ComponentActivity() {
                                 SmallTitle(text = stringResource(R.string.same_source_count, sourceCounts[entry.source] ?: 0),
                                     insideMargin = PaddingValues(top = 10.dp, bottom = 4.dp))
                             }
-                            Text(sourceValue.ifEmpty { stringResource(R.string.detail_unavailable) })
+                            Text(sourceValue.ifEmpty { stringResource(R.string.detail_unavailable) }, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }
@@ -736,22 +840,6 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun DetailField(label: String, value: String) {
         SmallTitle(text = label, insideMargin = PaddingValues(top = 10.dp, bottom = 4.dp))
-        Text(value)
-    }
-
-    @Composable
-    private fun ScopeOption(label: String, selected: Boolean, index: Int, onClick: () -> Unit) {
-        Row(Modifier.fillMaxWidth().clickable(onClick = onClick)
-            .padding(start = 28.dp, end = 28.dp,
-                top = if (index == 0) 12.dp else 8.dp,
-                bottom = if (index == 11) 12.dp else 8.dp)
-            .heightIn(min = 36.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, fontSize = MiuixTheme.textStyles.body1.fontSize, fontWeight = FontWeight.Medium,
-                color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceContainer)
-            Icon(imageVector = MiuixIcons.Basic.Check, contentDescription = null,
-                tint = if (selected) MiuixTheme.colorScheme.primary else Color.Transparent,
-                modifier = Modifier.padding(start = 12.dp).size(20.dp))
-        }
+        Text(value, fontFamily = FontFamily.Monospace)
     }
 }
